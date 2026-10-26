@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed + auto install VSCode & Word (Fixed Version)
+# rdp by yamzz modifed + auto install VSCode & Word (Fixed & Strengthened)
 on:
   workflow_dispatch:
 
@@ -50,16 +50,26 @@ jobs:
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          Write-Host "Memulai instalasi Tailscale..."
+          $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -PassThru
+          $process.WaitForExit()
+          
           Remove-Item $installerPath -Force
+          
+          # Tunggu beberapa detik untuk memastikan folder sistem stabil
+          Start-Sleep -Seconds 5
 
       - name: Establish Tailscale Connection
         run: |
-          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
           
-          & $tsExe up `
-            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
-            --hostname=abdulhalim
+          if (-not (Test-Path $tsExe)) {
+              Write-Error "Aplikasi Tailscale tidak ditemukan di jalur instalasi!"
+              exit 1
+          }
+          
+          & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
           
           $tsIP = $null
           $retries = 0
