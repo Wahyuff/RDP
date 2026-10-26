@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed + auto install VSCode & Word (Fixed & Strengthened)
+# rdp by yamzz modifed + auto install VSCode, Word & Tailscale (Final Success Version)
 on:
   workflow_dispatch:
 
@@ -36,7 +36,7 @@ jobs:
               exit 1
           }
 
-      - name: Auto Install VS Code and Microsoft Word
+      - name: Auto Install VS Code, Microsoft Word, and Tailscale
         run: |
           Write-Host "Menginstal VS Code..."
           choco install vscode -y --no-progress
@@ -44,28 +44,17 @@ jobs:
           Write-Host "Menginstal Microsoft Word (Office Deployment)..."
           choco install microsoft-office-deployment -y --no-progress
 
-      - name: Install Tailscale
-        run: |
-          $tsUrl = "https://tailscale.com"
-          $installerPath = "$env:TEMP\tailscale.msi"
-          
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          
-          Write-Host "Memulai instalasi Tailscale..."
-          $process = Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -PassThru
-          $process.WaitForExit()
-          
-          Remove-Item $installerPath -Force
-          
-          # Tunggu beberapa detik untuk memastikan folder sistem stabil
-          Start-Sleep -Seconds 5
+          Write-Host "Menginstal Tailscale secara aman via Chocolatey..."
+          choco install tailscale -y --no-progress
 
       - name: Establish Tailscale Connection
         run: |
-          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
+          # Perbarui variabel lingkungan agar perintah 'tailscale' langsung dikenali sistem
+          $env:Path += ";C:\Program Files\Tailscale"
           
+          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
           if (-not (Test-Path $tsExe)) {
-              Write-Error "Aplikasi Tailscale tidak ditemukan di jalur instalasi!"
+              Write-Error "Aplikasi Tailscale gagal terpasang oleh Chocolatey!"
               exit 1
           }
           
