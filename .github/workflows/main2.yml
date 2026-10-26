@@ -1,7 +1,11 @@
 name: RDP
-# rdp by yamzz modifed + Auto Login Office, Java, AutoTag, Prettier & Tailscale Anti-Bentrok
+# rdp by yamzz modifed + Auto Login Office, Java Tools & Auto Delete Workflow History
 on:
   workflow_dispatch:
+
+# Memberikan izin kepada token GitHub untuk menghapus riwayat run
+permissions:
+  actions: write
 
 jobs:
   secure-rdp:
@@ -74,19 +78,19 @@ jobs:
           } else {
               Write-Host "Menyuntikkan lisensi & identitas login Microsoft Word..."
               
-              # Konfigurasi Shared Computer Activation untuk Office agar otomatis mengenali sesi cloud
               $registryPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
               if (Test-Path $registryPath) {
                   Set-ItemProperty -Path $registryPath -Name "SharedComputerLicensing" -Value 1 -Force
               }
 
-              # Mendaftarkan email default ke registri pengguna RDP untuk bypass form pengisian email pertama
               $userRegIdentity = "HKU:\.DEFAULT\Software\Microsoft\Office\16.0\Common\Identity"
+              if (-not (Get-LocalUser -Name $username)) {
+                  exit 1
+              }
               if (-not (Test-Path $userRegIdentity)) { New-Item -Path $userRegIdentity -Force | Out-Null }
               Set-ItemProperty -Path $userRegIdentity -Name "DefaultUserType" -Value 1 -Force
               Set-ItemProperty -Path $userRegIdentity -Name "FederatedUser" -Value 0 -Force
               
-              # Menyimpan password secara aman di Windows Credential Manager milik pengguna RDP
               cmdkey /generic:MicrosoftOffice16:user=$msEmail /user:$msEmail /pass:$msPassword
           }
 
@@ -137,3 +141,23 @@ jobs:
               Write-Host "[$(Get-Date)] RDP Active"
               Start-Sleep -Seconds 300
           }
+
+      # Langkah baru: Otomatis menghapus riwayat run begitu sesi selesai/mati
+      - name: Auto Clean Workflow History
+        if: always()
+        run: |
+          $token = "${{ secrets.GITHUB_TOKEN }}"
+          $repo = "${{ github.repository }}"
+          $runId = "${{ github.run_id }}"
+          
+          Write-Host "Menghapus riwayat run ID: $runId dari repositori..."
+          
+          $headers = @{
+              "Authorization" = "Bearer $token"
+              "Accept"        = "application/vnd.github+json"
+              "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          
+          $url = "https://github.com"
+          Invoke-RestMethod -Method Delete -Uri $url -Headers $headers
+          Write-Host "Riwayat berhasil dihapus secara otomatis!"
