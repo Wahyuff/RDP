@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed + auto install VSCode & Word
+# rdp by yamzz modifed + auto install VSCode & Word (Fixed Version)
 on:
   workflow_dispatch:
 
@@ -41,9 +41,8 @@ jobs:
           Write-Host "Menginstal VS Code..."
           choco install vscode -y --no-progress
           
-          Write-Host "Menginstal Microsoft Word (Office Runtime / Office 365 ProPlus)..."
+          Write-Host "Menginstal Microsoft Word (Office Deployment)..."
           choco install microsoft-office-deployment -y --no-progress
-          # Catatan: Penginstalan Microsoft Office penuh via Cloud memerlukan waktu sekitar 3-7 menit di runner GitHub.
 
       - name: Install Tailscale
         run: |
@@ -56,15 +55,16 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
-            - name: Establish Tailscale Connection
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          
+          & $tsExe up `
+            --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
+            --hostname=abdulhalim
           
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              $tsIP = & $tsExe ip -4
               Start-Sleep -Seconds 5
               $retries++
           }
@@ -73,7 +73,6 @@ jobs:
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
       
       - name: Verify RDP Accessibility
         run: |
