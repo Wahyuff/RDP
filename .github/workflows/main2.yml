@@ -1,12 +1,12 @@
 name: RDP
-# rdp by yamzz modifed & enhanced with Auto-Install Apps
+# rdp by yamzz modifed
 on:
   workflow_dispatch:
 
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360 # Batas maksimal server gratis GitHub Actions adalah 360 menit (6 jam)
+    timeout-minutes: 43000
 
     steps:
       - name: Configure Core RDP Settings By Yamzz
@@ -36,21 +36,9 @@ jobs:
               exit 1
           }
 
-      - name: Auto Install VS Code & Microsoft Word
-        run: |
-          Write-Host "Memulai instalasi otomatis VS Code dan Microsoft Office..."
-          
-          # Menginstal VS Code secara diam-diam (Silent Install)
-          winget install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements
-          
-          # Menginstal Microsoft Office 365 (Termasuk Microsoft Word)
-          winget install --id Microsoft.Office --silent --accept-source-agreements --accept-package-agreements
-          
-          Write-Host "Aplikasi VS Code & Microsoft Word berhasil dipasang!"
-
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://tailscale.com"
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
