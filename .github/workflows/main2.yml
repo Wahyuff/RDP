@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed
+# rdp by yamzz modifed + auto install VSCode & Word
 on:
   workflow_dispatch:
 
@@ -36,9 +36,18 @@ jobs:
               exit 1
           }
 
+      - name: Auto Install VS Code and Microsoft Word
+        run: |
+          Write-Host "Menginstal VS Code..."
+          choco install vscode -y --no-progress
+          
+          Write-Host "Menginstal Microsoft Word (Office Runtime / Office 365 ProPlus)..."
+          choco install microsoft-office-deployment -y --no-progress
+          # Catatan: Penginstalan Microsoft Office penuh via Cloud memerlukan waktu sekitar 3-7 menit di runner GitHub.
+
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $tsUrl = "https://tailscale.com"
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
