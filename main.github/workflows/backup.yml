@@ -1,0 +1,31 @@
+
+name: Simpan Data RDP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: windows-latest
+    steps:
+      - name: Siapkan folder data
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory `
+            -Force "$env:GITHUB_WORKSPACE\RDP-Data"
+
+      - name: Pulihkan cache data
+        uses: actions/cache@v4
+        with:
+          path: RDP-Data
+          key: rdp-data-${{ github.ref_name }}
+          restore-keys: |
+            rdp-data-
+
+      - name: Periksa data
+        shell: pwsh
+        run: |
+          Get-ChildItem RDP-Data -Recurse
