@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed + auto install VSCode, Word & Tailscale (Final Success Version)
+# rdp by yamzz modifed + Auto Login Office, Java, AutoTag, Prettier & Tailscale Anti-Bentrok
 on:
   workflow_dispatch:
 
@@ -36,29 +36,71 @@ jobs:
               exit 1
           }
 
-      - name: Auto Install VS Code, Microsoft Word, and Tailscale
+      - name: Auto Install VS Code, JDK, Microsoft 365, and Tailscale
         run: |
           Write-Host "Menginstal VS Code..."
           choco install vscode -y --no-progress
           
-          Write-Host "Menginstal Microsoft Word (Office Deployment)..."
-          choco install microsoft-office-deployment -y --no-progress
+          Write-Host "Menginstal Microsoft 365 (Office 365 ProPlus Apps)..."
+          choco install office365proplus -y --no-progress
+
+          Write-Host "Menginstal Java JDK..."
+          choco install openjdk -y --no-progress
 
           Write-Host "Menginstal Tailscale secara aman via Chocolatey..."
           choco install tailscale -y --no-progress
 
+      - name: Auto Configure VS Code Extensions
+        run: |
+          $env:Path += ";$env:ProgramFiles\Microsoft VS Code\bin"
+          $userProfileDir = "C:\Users\DenzzNOV\AppData\Roaming\Code"
+          
+          Write-Host "Menginstal Extension Pack for Java..."
+          code --install-extension vscjava.vscode-java-pack --user-data-dir=$userProfileDir
+
+          Write-Host "Menginstal Auto Rename Tag..."
+          code --install-extension formulahendry.auto-rename-tag --user-data-dir=$userProfileDir
+
+          Write-Host "Menginstal Prettier - Code formatter..."
+          code --install-extension esbenp.prettier-vscode --user-data-dir=$userProfileDir
+
+      - name: Auto Inject Microsoft Word Credentials
+        run: |
+          $msEmail = "${{ secrets.MICROSOFT_EMAIL }}"
+          $msPassword = "${{ secrets.MICROSOFT_PASSWORD }}"
+          
+          if (-not $msEmail -or -not $msPassword) {
+              Write-Warning "Kredensial Microsoft tidak diset di GitHub Secrets! Melewati login otomatis."
+          } else {
+              Write-Host "Menyuntikkan lisensi & identitas login Microsoft Word..."
+              
+              # Konfigurasi Shared Computer Activation untuk Office agar otomatis mengenali sesi cloud
+              $registryPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+              if (Test-Path $registryPath) {
+                  Set-ItemProperty -Path $registryPath -Name "SharedComputerLicensing" -Value 1 -Force
+              }
+
+              # Mendaftarkan email default ke registri pengguna RDP untuk bypass form pengisian email pertama
+              $userRegIdentity = "HKU:\.DEFAULT\Software\Microsoft\Office\16.0\Common\Identity"
+              if (-not (Test-Path $userRegIdentity)) { New-Item -Path $userRegIdentity -Force | Out-Null }
+              Set-ItemProperty -Path $userRegIdentity -Name "DefaultUserType" -Value 1 -Force
+              Set-ItemProperty -Path $userRegIdentity -Name "FederatedUser" -Value 0 -Force
+              
+              # Menyimpan password secara aman di Windows Credential Manager milik pengguna RDP
+              cmdkey /generic:MicrosoftOffice16:user=$msEmail /user:$msEmail /pass:$msPassword
+          }
+
       - name: Establish Tailscale Connection
         run: |
-          # Perbarui variabel lingkungan agar perintah 'tailscale' langsung dikenali sistem
           $env:Path += ";C:\Program Files\Tailscale"
-          
           $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
+          
           if (-not (Test-Path $tsExe)) {
-              Write-Error "Aplikasi Tailscale gagal terpasang oleh Chocolatey!"
+              Write-Error "Aplikasi Tailscale gagal terpasang!"
               exit 1
           }
           
-          & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
+          & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim --reset
           
           $tsIP = $null
           $retries = 0
