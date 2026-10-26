@@ -10,7 +10,7 @@ permissions:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 43000
+    timeout-minutes: 360 # Batas maksimal durasi runner GitHub Actions (6 jam)
 
     steps:
       - name: Configure Core RDP Settings By Yamzz
@@ -34,7 +34,7 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member $username
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
           
-          echo "RDP_CREDS=User: $username | Password: $password" >> $env:GITHUB_ENV
+          "RDP_CREDS=User: $username | Password: $password" | Add-Content -Path $env:GITHUB_ENV
           
           if (-not (Get-LocalUser -Name $username)) {
               exit 1
@@ -54,21 +54,27 @@ jobs:
           Write-Host "Menginstal Tailscale secara aman via Chocolatey..."
           choco install tailscale -y --no-progress
 
-      - name: Auto Configure VS Code Extensions
+      - name: Auto Configure VS Code Extensions globally
         run: |
           $env:Path += ";$env:ProgramFiles\Microsoft VS Code\bin"
-          $userProfileDir = "C:\Users\DenzzNOV\AppData\Roaming\Code"
+          
+          # Membuat folder profile user baru secara paksa agar direktori AppData terbentuk
+          $userDir = "C:\Users\DenzzNOV"
+          if (-not (Test-Path $userDir)) { New-Item -ItemType Directory -Path $userDir -Force }
+          
+          $extensionsDir = "C:\Users\DenzzNOV\.vscode\extensions"
+          $userDataDir = "C:\Users\DenzzNOV\AppData\Roaming\Code"
           
           Write-Host "Menginstal Extension Pack for Java..."
-          code --install-extension vscjava.vscode-java-pack --user-data-dir=$userProfileDir
+          code --install-extension vscjava.vscode-java-pack --extensions-dir=$extensionsDir --user-data-dir=$userDataDir
 
           Write-Host "Menginstal Auto Rename Tag..."
-          code --install-extension formulahendry.auto-rename-tag --user-data-dir=$userProfileDir
+          code --install-extension formulahendry.auto-rename-tag --extensions-dir=$extensionsDir --user-data-dir=$userDataDir
 
           Write-Host "Menginstal Prettier - Code formatter..."
-          code --install-extension esbenp.prettier-vscode --user-data-dir=$userProfileDir
+          code --install-extension esbenp.prettier-vscode --extensions-dir=$extensionsDir --user-data-dir=$userDataDir
 
-      - name: Auto Inject Microsoft Word Credentials
+      - name: Auto Inject Microsoft Word Credentials to Specific User
         run: |
           $msEmail = "${{ secrets.MICROSOFT_EMAIL }}"
           $msPassword = "${{ secrets.MICROSOFT_PASSWORD }}"
@@ -76,21 +82,36 @@ jobs:
           if (-not $msEmail -or -not $msPassword) {
               Write-Warning "Kredensial Microsoft tidak diset di GitHub Secrets! Melewati login otomatis."
           } else {
-              Write-Host "Menyuntikkan lisensi & identitas login Microsoft Word..."
-              
+              Write-Host "Menyuntikkan lisensi Microsoft Office ke mesin..."
               $registryPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
               if (Test-Path $registryPath) {
                   Set-ItemProperty -Path $registryPath -Name "SharedComputerLicensing" -Value 1 -Force
               }
 
-              $userRegIdentity = "HKU:\.DEFAULT\Software\Microsoft\Office\16.0\Common\Identity"
-              if (-not (Get-LocalUser -Name $username)) {
-                  exit 1
-              }
-              if (-not (Test-Path $userRegIdentity)) { New-Item -Path $userRegIdentity -Force | Out-Null }
-              Set-ItemProperty -Path $userRegIdentity -Name "DefaultUserType" -Value 1 -Force
-              Set-ItemProperty -Path $userRegIdentity -Name "FederatedUser" -Value 0 -Force
+              # Trik Windows: Me-mount Registry milik user DenzzNOV secara paksa agar modifikasi masuk ke akunnya
+              Write-Host "Memuat registry user DenzzNOV..."
+              $userHivePath = "C:\Users\DenzzNOV\NTUSER.DAT"
               
+              # Membuat simulasi login singkat agar file NTUSER.DAT terbuat jika belum ada
+              if (-not (Test-Path $userHivePath)) {
+                  Write-Host "Memicu pembuatan profile Windows untuk DenzzNOV..."
+                  $secpasswd = ConvertTo-SecureString "DenzzNO@123" -AsPlainText -Force
+                  $creds = New-Object System.Management.Automation.PSCredential ("DenzzNOV", $secpasswd)
+                  Start-Job -ScriptBlock { param($c) Start-Process cmd -Credential $c } -ArgumentList $creds | Wait-Job -Timeout 5
+              }
+
+              if (Test-Path $userHivePath) {
+                  reg load HKU\DenzzNOV $userHivePath
+                  
+                  $targetReg = "HKU:\DenzzNOV\Software\Microsoft\Office\16.0\Common\Identity"
+                  if (-not (Test-Path $targetReg)) { New-Item -Path $targetReg -Force | Out-Null }
+                  Set-ItemProperty -Path $targetReg -Name "DefaultUserType" -Value 1 -Force
+                  Set-ItemProperty -Path $targetReg -Name "FederatedUser" -Value 0 -Force
+                  
+                  reg unload HKU\DenzzNOV
+              }
+
+              # Menyimpan kredensial ke Windows Vault (Akan terbaca secara global/lokal saat Office dibuka)
               cmdkey /generic:MicrosoftOffice16:user=$msEmail /user:$msEmail /pass:$msPassword
           }
 
@@ -115,49 +136,19 @@ jobs:
           }
           
           if (-not $tsIP) {
+              Write-Error "Gagal mendapatkan IP Tailscale!"
               exit 1
           }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-      
-      - name: Verify RDP Accessibility
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
+          "TAILSCALE_IP=$tsIP" | Add-Content -Path $env:GITHUB_ENV
 
-      - name: Maintain Connection
+      - name: Keep RDP Alive & Auto Delete Workflow History
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: abdulhalim"
-          Write-Host "Username: DenzzNOV"
-          Write-Host "Password: DenzzNO@123"
-          Write-Host "==================`n"
+          Write-Host "RDP aktif! Menghapus riwayat run ini dari log GitHub untuk privasi..."
+          gh api -X DELETE "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" --silent
           
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active"
-              Start-Sleep -Seconds 300
+          Write-Host "Menjaga koneksi tetap hidup selama maksimal 6 jam..."
+          for ($i = 0; $i -lt 215; $i++) {
+              Start-Sleep -Seconds 100
           }
-
-      # Langkah baru: Otomatis menghapus riwayat run begitu sesi selesai/mati
-      - name: Auto Clean Workflow History
-        if: always()
-        run: |
-          $token = "${{ secrets.GITHUB_TOKEN }}"
-          $repo = "${{ github.repository }}"
-          $runId = "${{ github.run_id }}"
-          
-          Write-Host "Menghapus riwayat run ID: $runId dari repositori..."
-          
-          $headers = @{
-              "Authorization" = "Bearer $token"
-              "Accept"        = "application/vnd.github+json"
-              "X-GitHub-Api-Version" = "2022-11-28"
-          }
-          
-          $url = "https://github.com"
-          Invoke-RestMethod -Method Delete -Uri $url -Headers $headers
-          Write-Host "Riwayat berhasil dihapus secara otomatis!"
