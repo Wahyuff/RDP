@@ -6,7 +6,7 @@ on:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360 # Catatan: Batas maksimal server gratis GitHub Actions adalah 360 menit (6 jam)
+    timeout-minutes: 360 # Batas maksimal server gratis GitHub Actions adalah 360 menit (6 jam)
 
     steps:
       - name: Configure Core RDP Settings By Yamzz
@@ -36,15 +36,6 @@ jobs:
               exit 1
           }
 
-      - name: Install GPU Drivers & Virtualization (Mesa/DirectX)
-        run: |
-          # Server GitHub Actions tidak memiliki fisik GPU asli (Hardware-less VM).
-          # Baris ini mengunduh paket akselerasi grafis software agar game/emulator tidak crash karena error OpenGL/DirectX.
-          Write-Host "Menginstal paket akselerasi grafis virtual..."
-          chkconfig --add choco 2>$null
-          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org'))
-          choco install openaldist -y
-
       - name: Auto Install VS Code & Microsoft Word
         run: |
           Write-Host "Memulai instalasi otomatis VS Code dan Microsoft Office..."
@@ -55,11 +46,11 @@ jobs:
           # Menginstal Microsoft Office 365 (Termasuk Microsoft Word)
           winget install --id Microsoft.Office --silent --accept-source-agreements --accept-package-agreements
           
-          Write-Host "Aplikasi berhasil dipasang di sistem RDP!"
+          Write-Host "Aplikasi VS Code & Microsoft Word berhasil dipasang!"
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $tsUrl = "https://tailscale.com"
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
