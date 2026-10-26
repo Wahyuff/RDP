@@ -75,7 +75,7 @@ jobs:
       - name: Maintain Connection
         run: |
           Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: gh-runner-fixed"
+          Write-Host "Address: abdulhalim"
           Write-Host "Username: DenzzNOV"
           Write-Host "Password: DenzzNO@123"
           Write-Host "==================`n"
