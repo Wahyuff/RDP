@@ -1,5 +1,5 @@
 name: RDP
-# rdp by yamzz modifed + auto install VSCode, Word & Tailscale (Final Success Version)
+# rdp by yamzz modifed
 on:
   workflow_dispatch:
 
@@ -36,34 +36,23 @@ jobs:
               exit 1
           }
 
-      - name: Auto Install VS Code, Microsoft Word, and Tailscale
+      - name: Install Tailscale
         run: |
-          Write-Host "Menginstal VS Code..."
-          choco install vscode -y --no-progress
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
           
-          Write-Host "Menginstal Microsoft Word (Office Deployment)..."
-          choco install microsoft-office-deployment -y --no-progress
-
-          Write-Host "Menginstal Tailscale secara aman via Chocolatey..."
-          choco install tailscale -y --no-progress
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
         run: |
-          # Perbarui variabel lingkungan agar perintah 'tailscale' langsung dikenali sistem
-          $env:Path += ";C:\Program Files\Tailscale"
-          
-          $tsExe = "C:\Program Files\Tailscale\tailscale.exe"
-          if (-not (Test-Path $tsExe)) {
-              Write-Error "Aplikasi Tailscale gagal terpasang oleh Chocolatey!"
-              exit 1
-          }
-          
-          & $tsExe up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
           
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & $tsExe ip -4
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
               Start-Sleep -Seconds 5
               $retries++
           }
