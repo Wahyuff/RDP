@@ -41,9 +41,30 @@ jobs:
           $tsUrl = "https://tailscale.com"
           $installerPath = "$env:TEMP\tailscale.msi"
           
+          Write-Host "Mengunduh Tailscale installer..."
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          
+          Write-Host "Memulai instalasi Tailscale..."
+          # Perbaikan: Menggunakan /qn /norestart dan memaksakan cmd menunggu proses msiexec benar-benar selesai
+          $arguments = "/i `"$installerPath`" /qn /norestart /log `"$env:TEMP\tailscale_install.log`""
+          $process = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru
+          
+          # Berikan jeda tambahan dan verifikasi apakah folder instalasi sudah terbentuk
+          $targetPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          $timeout = 0
+          while (-not (Test-Path $targetPath) -and $timeout -lt 12) {
+              Start-Sleep -Seconds 5
+              $timeout++
+          }
+
+          if (-not (Test-Path $targetPath)) {
+              Write-Error "Gagal menginstal Tailscale! Log instalasi:"
+              if (Test-Path "$env:TEMP\tailscale_install.log") { Get-Content "$env:TEMP\tailscale_install.log" -Tail 20 }
+              exit 1
+          }
+          
           Remove-Item $installerPath -Force
+          Write-Host "Tailscale berhasil terinstal!"
 
       - name: Establish Tailscale Connection
         run: |
