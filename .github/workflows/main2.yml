@@ -36,17 +36,22 @@ jobs:
               exit 1
           }
 
-      - name: Install Tailscale (Portable ZIP Method)
+      - name: Install Tailscale (Stable Tar Extraction)
         run: |
           Write-Host "Mengunduh Tailscale paket Portable ZIP..."
           $tsZipUrl = "https://tailscale.com"
           $zipPath = "$env:TEMP\tailscale.zip"
           $extractPath = "$env:TEMP\ts_extracted"
           
+          if (-not (Test-Path $extractPath)) {
+              New-Item -ItemType Directory -Force -Path $extractPath
+          }
+          
           Invoke-WebRequest -Uri $tsZipUrl -OutFile $zipPath
           
-          Write-Host "Mengekstrak paket Tailscale..."
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          Write-Host "Mengekstrak paket Tailscale menggunakan tar.exe..."
+          # Perbaikan Utama: Menggunakan tar bawaan Windows untuk menghindari eror Expand-Archive
+          tar.exe -xf $zipPath -C $extractPath
           
           # Membuat folder tujuan permanen di Program Files
           $targetDir = "$env:ProgramFiles\Tailscale"
@@ -54,7 +59,7 @@ jobs:
               New-Item -ItemType Directory -Force -Path $targetDir
           }
           
-          # Menyalin file exe dari folder hasil ekstraksi inner-directory
+          # Menyalin file exe hasil ekstraksi ke folder tujuan
           $exeFiles = Get-ChildItem -Path $extractPath -Filter "*.exe" -Recurse
           foreach ($file in $exeFiles) {
               Copy-Item -Path $file.FullName -Destination $targetDir -Force
@@ -64,21 +69,21 @@ jobs:
           $tsDExePath = "$targetDir\tailscaled.exe"
           
           if (-not (Test-Path $tsExePath)) {
-              Write-Error "Gagal mengekstrak tailscale.exe!"
+              Write-Error "Gagal menemukan tailscale.exe setelah ekstraksi!"
               exit 1
           }
           
           Write-Host "Mendaftarkan dan menjalankan Tailscale Service..."
-          # Mendaftarkan tailscaled.exe sebagai Windows Service secara manual
           sc.exe create tailscaled binPath= "`"$tsDExePath`" --cleanup" start= auto
           sc.exe start tailscaled
           
-          # Beri jeda 5 detik agar service menginisialisasi socket
+          # Beri jeda agar Windows Service selesai inisialisasi awal
           Start-Sleep -Seconds 5
           
+          # Pembersihan file sampah
           Remove-Item $zipPath -Force
           Remove-Item $extractPath -Recurse -Force
-          Write-Host "Tailscale Portable Berhasil Dikonfigurasi!"
+          Write-Host "Tailscale Berhasil Terpasang!"
 
       - name: Establish Tailscale Connection
         run: |
