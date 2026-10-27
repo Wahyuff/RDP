@@ -1,7 +1,11 @@
+
 name: macOS-VNC-Fixed
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   secure-vnc:
@@ -9,78 +13,132 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Install Tailscale and TigerVNC
+      - name: Install Tailscale
         run: |
-          # Memperbarui Homebrew dan menginstal modul secara langsung
-          brew install tailscale tigervnc
-          
-          # Menjalankan background service untuk Tailscale
+          brew install tailscale
+
+          if ! command -v tailscale >/dev/null 2>&1; then
+            echo "ERROR: Tailscale binary tidak ditemukan"
+            exit 1
+          fi
+
           sudo brew services start tailscale
 
-      - name: Configure TigerVNC Server Password
+      - name: Configure macOS Screen Sharing
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
-          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
-          
-          # Membuat folder konfigurasi VNC di dalam direktori user utama
-          mkdir -p ~/.vnc
-          
-          # Mengatur password akses langsung ke: DenzzNO@123
-          echo "DenzzNO@123" | vncpasswd -f > ~/.vnc/passwd
-          chmod 600 ~/.vnc/passwd
+          set -euo pipefail
 
-      - name: Launch Virtual VNC Display
-        run: |
-          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
-          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
-          
-          # Menghapus berkas lock sisa (jika ada) agar tidak memblokir server virtual
-          rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
-          rm -rf /tmp/.X12-unix/X1 2>/dev/null || true
-          
-          # Memulai server layar virtual pada Port 5901 (Display :1)
-          vncserver :1 -localhost no -geometry 1280x720 -depth 24
+          if [ -z "${VNC_PASSWORD:-}" ]; then
+            echo "ERROR: Buat GitHub Secret bernama VNC_PASSWORD"
+            exit 1
+          fi
+
+          # Legacy VNC password hanya memakai 8 karakter pertama.
+          if [ "${#VNC_PASSWORD}" -lt 8 ]; then
+            echo "ERROR: Gunakan password VNC minimal 8 karakter"
+            exit 1
+          fi
+
+          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
+
+          if [ ! -x "$ARD" ]; then
+            echo "ERROR: Utilitas macOS Remote Management tidak ditemukan"
+            exit 1
+          fi
+
+          # Aktifkan layanan Screen Sharing bawaan macOS.
+          sudo launchctl enable system/com.apple.screensharing
+          sudo launchctl load -w \
+            /System/Library/LaunchDaemons/com.apple.screensharing.plist \
+            || true
+
+          # Atur autentikasi VNC.
+          sudo "$ARD" -configure \
+            -clientopts -setvnclegacy -vnclegacy yes
+
+          sudo "$ARD" -configure \
+            -clientopts -setvncpw -vncpw "$VNC_PASSWORD"
+
+          unset VNC_PASSWORD
+
+          # Mulai ulang agen Remote Management.
+          sudo "$ARD" -restart -agent -console || true
+
+          sleep 5
 
       - name: Establish Tailscale Connection
+        env:
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
-          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
-          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
-          
-          # Menyambungkan mesin macOS ke jaringan VPN Tailscale Anda
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
-          
-          # Menunggu interaksi jaringan hingga IP internal didapatkan
-          TS_IP=""
-          RETRIES=0
-          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
-              TS_IP=$(tailscale ip -4)
-              if [ -z "$TS_IP" ]; then
-                  sleep 5
-                  RETRIES=$((RETRIES+1))
-              fi
-          done
-          
-          if [ -z "$TS_IP" ]; then
-              echo "Gagal memperoleh IP jaringan Tailscale!"
-              exit 1
+          set -euo pipefail
+
+          if [ -z "${TS_AUTHKEY:-}" ]; then
+            echo "ERROR: Buat GitHub Secret TAILSCALE_AUTH_KEY"
+            exit 1
           fi
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-      
-      - name: Verify VNC Port Accessibility
+
+          sudo tailscale up \
+            --authkey="$TS_AUTHKEY" \
+            --hostname="gh-mac-$GITHUB_RUN_ID"
+
+          unset TS_AUTHKEY
+
+          TS_IP=""
+          for i in $(seq 1 30); do
+            TS_IP="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
+            if [ -n "$TS_IP" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$TS_IP" ]; then
+            echo "ERROR: IP Tailscale tidak tersedia"
+            exit 1
+          fi
+
+          echo "TAILSCALE_IP=$TS_IP" >> "$GITHUB_ENV"
+
+      - name: Verify VNC Port
         run: |
           echo "Tailscale IP: $TAILSCALE_IP"
-          # Mengecek kesiapan sistem pada Port 5901 (Display :1)
-          nc -zv localhost 5901
+
+          # Tunggu hingga port VNC tersedia.
+          READY=0
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 5900; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: Port VNC 5900 tidak aktif"
+            sudo launchctl list | grep -i screen || true
+            exit 1
+          fi
+
+          echo "VNC port 5900 aktif."
+          echo "Connect menggunakan: $TAILSCALE_IP:5900"
 
       - name: Maintain Connection
         run: |
-          echo -e "\n=== DETAIL LOGIN VNC TERBARU (ANTI-ERROR) ==="
-          echo "Address  : $TAILSCALE_IP:5901"
-          echo "Password : DenzzNO@123"
-          echo "=============================================\n"
-          
-          # Loop penahan agar runner tidak tertutup otomatis oleh sistem GitHub Actions
+          echo "=== macOS VNC SESSION ==="
+          echo "Address: $TAILSCALE_IP:5900"
+          echo "Password: gunakan GitHub Secret VNC_PASSWORD"
+          echo "Jangan membagikan password atau auth key."
+          echo "========================="
+
           while true; do
-              echo "[$(date)] VNC Server Active on Port 5901"
-              sleep 300
+            echo "[$(date)] Memeriksa koneksi VNC..."
+
+            if ! nc -z 127.0.0.1 5900; then
+              echo "ERROR: VNC terputus"
+              exit 1
+            fi
+
+            sleep 60
           done
