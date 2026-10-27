@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $tsUrl = "https://tailscale.com"
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
@@ -66,15 +66,35 @@ jobs:
         run: |
           Write-Host "Membuat direktori kerja Office..."
           $officeDir = "C:\OfficeSetup"
-          New-Item -ItemType Directory -Force -Path $officeDir
+          if (-not (Test-Path $officeDir)) {
+              New-Item -ItemType Directory -Force -Path $officeDir
+          }
           Set-Location $officeDir
 
           Write-Host "Mengunduh Office Deployment Tool..."
           $odtUrl = "https://microsoft.com"
           Invoke-WebRequest -Uri $odtUrl -OutFile "odt.exe"
+          
+          if ((Get-Item "odt.exe").Length -lt 1MB) {
+              Write-Error "Gagal mengunduh odt.exe (File rusak/terpotong)"
+              exit 1
+          }
 
           Write-Host "Mengekstrak ODT..."
-          Start-Process ".\odt.exe" -ArgumentList "/extract:$officeDir", "/quiet" -Wait
+          $extractArgs = "/extract:`"$officeDir`" /quiet /log:`"$officeDir\extract.log`""
+          $process = Start-Process -FilePath ".\odt.exe" -ArgumentList $extractArgs -Wait -PassThru
+          
+          if (-not (Test-Path ".\setup.exe")) {
+              Write-Host "Metode ekstraksi pertama gagal, mencoba metode alternatif..."
+              Start-Sleep -Seconds 3
+              & .\odt.exe /Q /X:"$officeDir"
+          }
+
+          if (-not (Test-Path ".\setup.exe")) {
+              Write-Error "Ekstraksi gagal! setup.exe tidak ditemukan di $officeDir."
+              if (Test-Path ".\extract.log") { Get-Content ".\extract.log" }
+              exit 1
+          }
 
           Write-Host "Membuat file konfigurasi khusus Word & PPT..."
           $configXml = @"
@@ -98,8 +118,12 @@ jobs:
           Out-File -FilePath ".\config.xml" -InputObject $configXml -Encoding utf8
 
           Write-Host "Memulai proses instalasi Office (Mohon tunggu beberapa menit)..."
-          Start-Process ".\setup.exe" -ArgumentList "/configure", ".\config.xml" -Wait
-          Write-Host "Instalasi selesai!"
+          $installProcess = Start-Process ".\setup.exe" -ArgumentList "/configure", ".\config.xml" -Wait -PassThru
+          if ($installProcess.ExitCode -ne 0) {
+              Write-Error "Instalasi Office gagal dengan Exit Code: $($installProcess.ExitCode)"
+              exit 1
+          }
+          Write-Host "Instalasi selesai dengan sukses!"
 
       - name: First Run MS Word and PowerPoint
         run: |
