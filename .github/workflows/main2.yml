@@ -1,86 +1,100 @@
-name: RDP
-# rdp by yamzz modifed
+name: macOS-VNC
+
 on:
   workflow_dispatch:
 
 jobs:
-  secure-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 43000
+  secure-vnc:
+    runs-on: macos-latest
+    timeout-minutes: 360 # Batas maksimal durasi runner GitHub Actions gratis
 
     steps:
-      - name: Configure Core RDP Settings By Yamzz
+      - name: Configure Core VNC/Screen Sharing Settings
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+          # Mengaktifkan Screen Sharing bawaan macOS
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # Membuka port VNC (5900) pada firewall macOS
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ScreensharingAgent.bundle/Contents/MacOS/ScreensharingAgent
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
 
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-
-          Restart-Service -Name TermService -Force
-
-      - name: Create RDP User with Secure Password
+      - name: Create VNC User with Secure Password
         run: |
-          $username = "DenzzNOV"
-          $password = "DenzzNO@123"
+          # Username dan Password untuk login remote desktop
+          USERNAME="DenzzNOV"
+          PASSWORD="DenzzNO@123"
           
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member $username
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          # Membuat user baru di macOS menggunakan dscl
+          sudo dscl . -create /Users/$USERNAME
+          sudo dscl . -create /Users/$USERNAME UserShell /bin/zsh
+          sudo dscl . -create /Users/$USERNAME RealName "DenzzNOV User"
+          sudo dscl . -create /Users/$USERNAME UniqueID 501
+          sudo dscl . -create /Users/$USERNAME PrimaryGroupID 20
+          sudo dscl . -create /Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
+          sudo dscl . -passwd /Users/$USERNAME "$PASSWORD"
           
-          echo "RDP_CREDS=User: $username | Password: $password" >> $env:GITHUB_ENV
+          # Memberikan hak akses Administrator (sudo) kepada user baru
+          sudo dscl . -append /Groups/admin GroupMembership $USERNAME
           
-          if (-not (Get-LocalUser -Name $username)) {
-              exit 1
-          }
+          # Membuat direktori home untuk user tersebut
+          sudo createhomedir -c -u $USERNAME
+          
+          echo "VNC_CREDS=User: $USERNAME | Password: $PASSWORD" >> $GITHUB_ENV
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          # Menginstal Tailscale menggunakan Homebrew bawaan runner macOS
+          brew install tailscale
           
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
-          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
-          Remove-Item $installerPath -Force
+          # Mendaftarkan dan menjalankan background service Tailscale
+          sudo brew services start tailscale
 
       - name: Establish Tailscale Connection
         run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=abdulhalim
+          # Menghubungkan ke Tailscale network menggunakan Auth Key
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
-          $tsIP = $null
-          $retries = 0
-          while (-not $tsIP -and $retries -lt 10) {
-              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-              Start-Sleep -Seconds 5
-              $retries++
-          }
+          # Menunggu hingga mendapatkan IP Tailscale
+          TS_IP=""
+          RETRIES=0
+          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
+              TS_IP=$(tailscale ip -4)
+              if [ -z "$TS_IP" ]; then
+                  sleep 5
+                  RETRIES=$((RETRIES+1))
+              fi
+          done
           
-          if (-not $tsIP) {
+          if [ -z "$TS_IP" ]; then
+              echo "Gagal mendapatkan IP Tailscale."
               exit 1
-          }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          fi
+          
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
       
-      - name: Verify RDP Accessibility
+      - name: Verify VNC Accessibility
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          echo "Tailscale IP: $TAILSCALE_IP"
           
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
+          # Memeriksa apakah port 5900 sudah terbuka dan merespons jaringan
+          nc -zv localhost 5900
+          if [ $? -ne 0 ]; then
+              echo "Port VNC 5900 tidak merespons!"
               exit 1
-          }
-          Write-Host "TCP connectivity successful!"
+          fi
+          echo "Konektivitas internal VNC sukses!"
 
       - name: Maintain Connection
         run: |
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: abdulhalim"
-          Write-Host "Username: DenzzNOV"
-          Write-Host "Password: DenzzNO@123"
-          Write-Host "==================`n"
+          echo -e "\n=== VNC ACCESS (macOS) ==="
+          echo "Address: $TAILSCALE_IP"
+          echo "Port: 5900"
+          echo "Username: DenzzNOV"
+          echo "Password: DenzzNO@123"
+          echo "==========================\n"
           
-          while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active"
-              Start-Sleep -Seconds 300
-          }
+          # Looping untuk menahan runner agar tidak mati otomatis
+          while true; do
+              echo "[$(date)] VNC Active"
+              sleep 300
+          done
