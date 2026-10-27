@@ -36,25 +36,14 @@ jobs:
               exit 1
           }
 
-      - name: Install Tailscale via Winget
+      - name: Install Tailscale
         run: |
-          Write-Host "Menginstal Tailscale menggunakan Winget..."
-          # Menggunakan Winget untuk instalasi silent yang otomatis mengonfigurasi Service Windows
-          winget install --id Tailscale.Tailscale --silent --accept-source-agreements --accept-package-agreements
+          $tsUrl = "https://tailscale.com"
+          $installerPath = "$env:TEMP\tailscale.msi"
           
-          # Tunggu dan verifikasi hingga file biner siap di folder instalasi standar
-          $targetPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          $timeout = 0
-          while (-not (Test-Path $targetPath) -and $timeout -lt 15) {
-              Start-Sleep -Seconds 5
-              $timeout++
-          }
-
-          if (-not (Test-Path $targetPath)) {
-              Write-Error "Tailscale gagal terinstal melalui Winget!"
-              exit 1
-          }
-          Write-Host "Tailscale berhasil terpasang sistem!"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
         run: |
@@ -69,46 +58,22 @@ jobs:
           }
           
           if (-not $tsIP) {
-              Write-Error "Gagal mendapatkan IP Tailscale!"
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
 
       - name: Install MS Word and PowerPoint (Office 365)
         run: |
-          Write-Host "Membuat direktori kerja Office..."
           $officeDir = "C:\OfficeSetup"
-          if (-not (Test-Path $officeDir)) {
-              New-Item -ItemType Directory -Force -Path $officeDir
-          }
+          New-Item -ItemType Directory -Force -Path $officeDir
           Set-Location $officeDir
 
-          Write-Host "Mengunduh Office Deployment Tool..."
           $odtUrl = "https://microsoft.com"
           Invoke-WebRequest -Uri $odtUrl -OutFile "odt.exe"
           
-          if ((Get-Item "odt.exe").Length -lt 1MB) {
-              Write-Error "Gagal mengunduh odt.exe (File rusak/terpotong)"
-              exit 1
-          }
+          # Ekstraksi manual menggunakan parameter bawaan executable demi keamanan lingkungan non-interaktif
+          & .\odt.exe /Q /X:"$officeDir"
 
-          Write-Host "Mengekstrak ODT..."
-          $extractArgs = "/extract:`"$officeDir`" /quiet /log:`"$officeDir\extract.log`""
-          $process = Start-Process -FilePath ".\odt.exe" -ArgumentList $extractArgs -Wait -PassThru
-          
-          if (-not (Test-Path ".\setup.exe")) {
-              Write-Host "Metode ekstraksi pertama gagal, mencoba metode alternatif..."
-              Start-Sleep -Seconds 3
-              & .\odt.exe /Q /X:"$officeDir"
-          }
-
-          if (-not (Test-Path ".\setup.exe")) {
-              Write-Error "Ekstraksi gagal! setup.exe tidak ditemukan di $officeDir."
-              if (Test-Path ".\extract.log") { Get-Content ".\extract.log" }
-              exit 1
-          }
-
-          Write-Host "Membuat file konfigurasi khusus Word & PPT..."
           $configXml = @"
           <Configuration>
             <Add OfficeClientEdition="64" Channel="Current">
@@ -129,36 +94,22 @@ jobs:
           "@
           Out-File -FilePath ".\config.xml" -InputObject $configXml -Encoding utf8
 
-          Write-Host "Memulai proses instalasi Office (Mohon tunggu beberapa menit)..."
-          $installProcess = Start-Process ".\setup.exe" -ArgumentList "/configure", ".\config.xml" -Wait -PassThru
-          if ($installProcess.ExitCode -ne 0) {
-              Write-Error "Instalasi Office gagal dengan Exit Code: $($installProcess.ExitCode)"
-              exit 1
-          }
-          Write-Host "Instalasi selesai dengan sukses!"
+          Start-Process ".\setup.exe" -ArgumentList "/configure", ".\config.xml" -Wait
 
       - name: First Run MS Word and PowerPoint
         run: |
-          Write-Host "Menjalankan Word untuk pertama kali..."
           $wordPath = "C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE"
           if (Test-Path $wordPath) {
               $wordProc = Start-Process $wordPath -PassThru
               Start-Sleep -Seconds 15
               Stop-Process -Id $wordProc.Id -Force
-              Write-Host "Word berhasil diinisialisasi."
-          } else {
-              Write-Host "WINWORD.EXE tidak ditemukan!"
           }
 
-          Write-Host "Menjalankan PowerPoint untuk pertama kali..."
           $pptPath = "C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE"
           if (Test-Path $pptPath) {
               $pptProc = Start-Process $pptPath -PassThru
               Start-Sleep -Seconds 15
               Stop-Process -Id $pptProc.Id -Force
-              Write-Host "PowerPoint berhasil diinisialisasi."
-          } else {
-              Write-Host "POWERPNT.EXE tidak ditemukan!"
           }
       
       - name: Verify RDP Accessibility
