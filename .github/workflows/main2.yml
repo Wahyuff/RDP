@@ -1,144 +1,86 @@
-
-name: macOS-VNC-Fixed
-
+name: RDP
+# rdp by yamzz modifed
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  secure-vnc:
-    runs-on: macos-latest
-    timeout-minutes: 360
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 43000
 
     steps:
+      - name: Configure Core RDP Settings By Yamzz
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+
+          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+
+          Restart-Service -Name TermService -Force
+
+      - name: Create RDP User with Secure Password
+        run: |
+          $username = "DenzzNOV"
+          $password = "DenzzNO@123"
+          
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name $username -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member $username
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+          
+          echo "RDP_CREDS=User: $username | Password: $password" >> $env:GITHUB_ENV
+          
+          if (-not (Get-LocalUser -Name $username)) {
+              exit 1
+          }
+
       - name: Install Tailscale
         run: |
-          brew install tailscale
-
-          if ! command -v tailscale >/dev/null 2>&1; then
-            echo "ERROR: Tailscale binary tidak ditemukan"
-            exit 1
-          fi
-
-          sudo brew services start tailscale
-
-      - name: Configure macOS Screen Sharing
-        env:
-          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${VNC_PASSWORD:-}" ]; then
-            echo "ERROR: Buat GitHub Secret bernama VNC_PASSWORD"
-            exit 1
-          fi
-
-          # Legacy VNC password hanya memakai 8 karakter pertama.
-          if [ "${#VNC_PASSWORD}" -lt 8 ]; then
-            echo "ERROR: Gunakan password VNC minimal 8 karakter"
-            exit 1
-          fi
-
-          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-
-          if [ ! -x "$ARD" ]; then
-            echo "ERROR: Utilitas macOS Remote Management tidak ditemukan"
-            exit 1
-          fi
-
-          # Aktifkan layanan Screen Sharing bawaan macOS.
-          sudo launchctl enable system/com.apple.screensharing
-          sudo launchctl load -w \
-            /System/Library/LaunchDaemons/com.apple.screensharing.plist \
-            || true
-
-          # Atur autentikasi VNC.
-          sudo "$ARD" -configure \
-            -clientopts -setvnclegacy -vnclegacy yes
-
-          sudo "$ARD" -configure \
-            -clientopts -setvncpw -vncpw "$VNC_PASSWORD"
-
-          unset VNC_PASSWORD
-
-          # Mulai ulang agen Remote Management.
-          sudo "$ARD" -restart -agent -console || true
-
-          sleep 5
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installerPath = "$env:TEMP\tailscale.msi"
+          
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installerPath -Force
 
       - name: Establish Tailscale Connection
-        env:
-          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
-          set -euo pipefail
-
-          if [ -z "${TS_AUTHKEY:-}" ]; then
-            echo "ERROR: Buat GitHub Secret TAILSCALE_AUTH_KEY"
-            exit 1
-          fi
-
-          sudo tailscale up \
-            --authkey="$TS_AUTHKEY" \
-            --hostname="gh-mac-$GITHUB_RUN_ID"
-
-          unset TS_AUTHKEY
-
-          TS_IP=""
-          for i in $(seq 1 30); do
-            TS_IP="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
-            if [ -n "$TS_IP" ]; then
-              break
-            fi
-            sleep 2
-          done
-
-          if [ -z "$TS_IP" ]; then
-            echo "ERROR: IP Tailscale tidak tersedia"
-            exit 1
-          fi
-
-          echo "TAILSCALE_IP=$TS_IP" >> "$GITHUB_ENV"
-
-      - name: Verify VNC Port
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 10) {
+              $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              Start-Sleep -Seconds 5
+              $retries++
+          }
+          
+          if (-not $tsIP) {
+              exit 1
+          }
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+      
+      - name: Verify RDP Accessibility
         run: |
-          echo "Tailscale IP: $TAILSCALE_IP"
-
-          # Tunggu hingga port VNC tersedia.
-          READY=0
-          for i in $(seq 1 30); do
-            if nc -z 127.0.0.1 5900; then
-              READY=1
-              break
-            fi
-            sleep 2
-          done
-
-          if [ "$READY" -ne 1 ]; then
-            echo "ERROR: Port VNC 5900 tidak aktif"
-            sudo launchctl list | grep -i screen || true
-            exit 1
-          fi
-
-          echo "VNC port 5900 aktif."
-          echo "Connect menggunakan: $TAILSCALE_IP:5900"
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
 
       - name: Maintain Connection
         run: |
-          echo "=== macOS VNC SESSION ==="
-          echo "Address: $TAILSCALE_IP:5900"
-          echo "Password: gunakan GitHub Secret VNC_PASSWORD"
-          echo "Jangan membagikan password atau auth key."
-          echo "========================="
-
-          while true; do
-            echo "[$(date)] Memeriksa koneksi VNC..."
-
-            if ! nc -z 127.0.0.1 5900; then
-              echo "ERROR: VNC terputus"
-              exit 1
-            fi
-
-            sleep 60
-          done
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Username: DenzzNOV"
+          Write-Host "Password: DenzzNO@123"
+          Write-Host "==================`n"
+          
+          while ($true) {
+              Write-Host "[$(Get-Date)] RDP Active"
+              Start-Sleep -Seconds 300
+          }
