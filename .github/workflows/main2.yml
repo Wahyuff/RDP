@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Install Tailscale and TigerVNC
         run: |
-          # Menginstal Tailscale dan TigerVNC Server melalui Homebrew
+          # Memperbarui Homebrew dan menginstal modul secara langsung
           brew install tailscale tigervnc
           
           # Menjalankan background service untuk Tailscale
@@ -19,24 +19,45 @@ jobs:
 
       - name: Configure TigerVNC Server Password
         run: |
-          # Membuat folder konfigurasi VNC di direktori user
+          # Memuat path Homebrew secara dinamis agar perintah 'vncpasswd' bisa ditemukan
+          if [ -f /opt/homebrew/bin/brew ]; then
+              eval "$(/opt/homebrew/bin/brew shellenv)"
+          elif [ -f /usr/local/bin/brew ]; then
+              eval "$(/usr/local/bin/brew shellenv)"
+          fi
+          
+          # Membuat folder konfigurasi VNC di dalam direktori user utama
           mkdir -p ~/.vnc
           
-          # Menggunakan path absolut /opt/homebrew/bin/vncpasswd agar terbaca oleh sistem
-          echo "DenzzNO@123" | /opt/homebrew/bin/vncpasswd -f > ~/.vnc/passwd
+          # Mengatur password akses langsung ke: DenzzNO@123
+          echo "DenzzNO@123" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
 
       - name: Launch Virtual VNC Display
         run: |
-          # Menghapus berkas lock sisa (jika ada) agar tidak memblokir server
+          # Memuat path Homebrew secara dinamis agar perintah 'vncserver' bisa ditemukan
+          if [ -f /opt/homebrew/bin/brew ]; then
+              eval "$(/opt/homebrew/bin/brew shellenv)"
+          elif [ -f /usr/local/bin/brew ]; then
+              eval "$(/usr/local/bin/brew shellenv)"
+          fi
+          
+          # Menghapus berkas lock sisa (jika ada) agar tidak memblokir server virtual
           rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
           rm -rf /tmp/.X12-unix/X1 2>/dev/null || true
           
-          # Memulai server layar virtual menggunakan path absolut Homebrew pada Port 5901
-          /opt/homebrew/bin/vncserver :1 -localhost no -geometry 1280x720 -depth 24
+          # Memulai server layar virtual pada Port 5901 (Display :1)
+          vncserver :1 -localhost no -geometry 1280x720 -depth 24
 
       - name: Establish Tailscale Connection
         run: |
+          # Memuat path Homebrew secara dinamis agar perintah 'tailscale' bisa ditemukan
+          if [ -f /opt/homebrew/bin/brew ]; then
+              eval "$(/opt/homebrew/bin/brew shellenv)"
+          elif [ -f /usr/local/bin/brew ]; then
+              eval "$(/usr/local/bin/brew shellenv)"
+          fi
+          
           # Menyambungkan mesin macOS ke jaringan VPN Tailscale Anda
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
@@ -70,7 +91,7 @@ jobs:
           echo "Password : DenzzNO@123"
           echo "=============================================\n"
           
-          # Loop penahan agar runner tidak tertutup otomatis oleh GitHub
+          # Loop penahan agar runner tidak tertutup otomatis oleh sistem GitHub Actions
           while true; do
               echo "[$(date)] VNC Server Active on Port 5901"
               sleep 300
