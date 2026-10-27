@@ -6,7 +6,7 @@ on:
 jobs:
   secure-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360 # Batas maksimal sesi gratis GitHub Actions (6 jam)
+    timeout-minutes: 360
 
     steps:
       - name: Install Tailscale and TigerVNC
@@ -19,12 +19,11 @@ jobs:
 
       - name: Configure TigerVNC Server Password
         run: |
-          # Membuat folder konfigurasi VNC di direktori user utama
+          # Membuat folder konfigurasi VNC di direktori user
           mkdir -p ~/.vnc
           
-          # Mengatur password akses langsung ke: DenzzNO@123
-          # Menggunakan utilität vncpasswd bawaan agar enkripsinya cocok dengan HP
-          echo "DenzzNO@123" | vncpasswd -f > ~/.vnc/passwd
+          # Menggunakan path absolut /opt/homebrew/bin/vncpasswd agar terbaca oleh sistem
+          echo "DenzzNO@123" | /opt/homebrew/bin/vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
 
       - name: Launch Virtual VNC Display
@@ -33,9 +32,8 @@ jobs:
           rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
           rm -rf /tmp/.X12-unix/X1 2>/dev/null || true
           
-          # Memulai server layar virtual TigerVNC pada Display :1 (Port 5901)
-          # Fitur localhost dimatikan agar bisa menerima koneksi dari IP Tailscale Anda
-          vncserver :1 -localhost no -geometry 1280x720 -depth 24
+          # Memulai server layar virtual menggunakan path absolut Homebrew pada Port 5901
+          /opt/homebrew/bin/vncserver :1 -localhost no -geometry 1280x720 -depth 24
 
       - name: Establish Tailscale Connection
         run: |
