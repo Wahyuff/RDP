@@ -19,12 +19,8 @@ jobs:
 
       - name: Configure TigerVNC Server Password
         run: |
-          # Memuat path Homebrew secara dinamis agar perintah 'vncpasswd' bisa ditemukan
-          if [ -f /opt/homebrew/bin/brew ]; then
-              eval "$(/opt/homebrew/bin/brew shellenv)"
-          elif [ -f /usr/local/bin/brew ]; then
-              eval "$(/usr/local/bin/brew shellenv)"
-          fi
+          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
           # Membuat folder konfigurasi VNC di dalam direktori user utama
           mkdir -p ~/.vnc
@@ -35,12 +31,8 @@ jobs:
 
       - name: Launch Virtual VNC Display
         run: |
-          # Memuat path Homebrew secara dinamis agar perintah 'vncserver' bisa ditemukan
-          if [ -f /opt/homebrew/bin/brew ]; then
-              eval "$(/opt/homebrew/bin/brew shellenv)"
-          elif [ -f /usr/local/bin/brew ]; then
-              eval "$(/usr/local/bin/brew shellenv)"
-          fi
+          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
           # Menghapus berkas lock sisa (jika ada) agar tidak memblokir server virtual
           rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
@@ -51,12 +43,8 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Memuat path Homebrew secara dinamis agar perintah 'tailscale' bisa ditemukan
-          if [ -f /opt/homebrew/bin/brew ]; then
-              eval "$(/opt/homebrew/bin/brew shellenv)"
-          elif [ -f /usr/local/bin/brew ]; then
-              eval "$(/usr/local/bin/brew shellenv)"
-          fi
+          # Memaksa terminal membaca seluruh folder binari Homebrew (Intel & Apple Silicon)
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
           # Menyambungkan mesin macOS ke jaringan VPN Tailscale Anda
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
