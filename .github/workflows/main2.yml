@@ -38,7 +38,7 @@ jobs:
 
       - name: Install Tailscale
         run: |
-          $tsUrl = "https://tailscale.com"
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
           
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
@@ -61,56 +61,6 @@ jobs:
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
-      - name: Install MS Word and PowerPoint (Office 365)
-        run: |
-          $officeDir = "C:\OfficeSetup"
-          New-Item -ItemType Directory -Force -Path $officeDir
-          Set-Location $officeDir
-
-          $odtUrl = "https://microsoft.com"
-          Invoke-WebRequest -Uri $odtUrl -OutFile "odt.exe"
-          
-          # Ekstraksi manual menggunakan parameter bawaan executable demi keamanan lingkungan non-interaktif
-          & .\odt.exe /Q /X:"$officeDir"
-
-          $configXml = @"
-          <Configuration>
-            <Add OfficeClientEdition="64" Channel="Current">
-              <Product ID="O365ProPlusRetail">
-                <Language ID="en-us" />
-                <ExcludeApp ID="Access" />
-                <ExcludeApp ID="Excel" />
-                <ExcludeApp ID="Lync" />
-                <ExcludeApp ID="OneDrive" />
-                <ExcludeApp ID="OneNote" />
-                <ExcludeApp ID="Outlook" />
-                <ExcludeApp ID="Publisher" />
-                <ExcludeApp ID="Teams" />
-              </Product>
-            </Add>
-            <Display Level="None" AcceptEULA="TRUE" />
-          </Configuration>
-          "@
-          Out-File -FilePath ".\config.xml" -InputObject $configXml -Encoding utf8
-
-          Start-Process ".\setup.exe" -ArgumentList "/configure", ".\config.xml" -Wait
-
-      - name: First Run MS Word and PowerPoint
-        run: |
-          $wordPath = "C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE"
-          if (Test-Path $wordPath) {
-              $wordProc = Start-Process $wordPath -PassThru
-              Start-Sleep -Seconds 15
-              Stop-Process -Id $wordProc.Id -Force
-          }
-
-          $pptPath = "C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE"
-          if (Test-Path $pptPath) {
-              $pptProc = Start-Process $pptPath -PassThru
-              Start-Sleep -Seconds 15
-              Stop-Process -Id $pptProc.Id -Force
-          }
       
       - name: Verify RDP Accessibility
         run: |
