@@ -36,54 +36,25 @@ jobs:
               exit 1
           }
 
-      - name: Install Tailscale (Stable Tar Extraction)
+      - name: Install Tailscale via Winget
         run: |
-          Write-Host "Mengunduh Tailscale paket Portable ZIP..."
-          $tsZipUrl = "https://tailscale.com"
-          $zipPath = "$env:TEMP\tailscale.zip"
-          $extractPath = "$env:TEMP\ts_extracted"
+          Write-Host "Menginstal Tailscale menggunakan Winget..."
+          # Menggunakan Winget untuk instalasi silent yang otomatis mengonfigurasi Service Windows
+          winget install --id Tailscale.Tailscale --silent --accept-source-agreements --accept-package-agreements
           
-          if (-not (Test-Path $extractPath)) {
-              New-Item -ItemType Directory -Force -Path $extractPath
+          # Tunggu dan verifikasi hingga file biner siap di folder instalasi standar
+          $targetPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          $timeout = 0
+          while (-not (Test-Path $targetPath) -and $timeout -lt 15) {
+              Start-Sleep -Seconds 5
+              $timeout++
           }
-          
-          Invoke-WebRequest -Uri $tsZipUrl -OutFile $zipPath
-          
-          Write-Host "Mengekstrak paket Tailscale menggunakan tar.exe..."
-          # Perbaikan Utama: Menggunakan tar bawaan Windows untuk menghindari eror Expand-Archive
-          tar.exe -xf $zipPath -C $extractPath
-          
-          # Membuat folder tujuan permanen di Program Files
-          $targetDir = "$env:ProgramFiles\Tailscale"
-          if (-not (Test-Path $targetDir)) {
-              New-Item -ItemType Directory -Force -Path $targetDir
-          }
-          
-          # Menyalin file exe hasil ekstraksi ke folder tujuan
-          $exeFiles = Get-ChildItem -Path $extractPath -Filter "*.exe" -Recurse
-          foreach ($file in $exeFiles) {
-              Copy-Item -Path $file.FullName -Destination $targetDir -Force
-          }
-          
-          $tsExePath = "$targetDir\tailscale.exe"
-          $tsDExePath = "$targetDir\tailscaled.exe"
-          
-          if (-not (Test-Path $tsExePath)) {
-              Write-Error "Gagal menemukan tailscale.exe setelah ekstraksi!"
+
+          if (-not (Test-Path $targetPath)) {
+              Write-Error "Tailscale gagal terinstal melalui Winget!"
               exit 1
           }
-          
-          Write-Host "Mendaftarkan dan menjalankan Tailscale Service..."
-          sc.exe create tailscaled binPath= "`"$tsDExePath`" --cleanup" start= auto
-          sc.exe start tailscaled
-          
-          # Beri jeda agar Windows Service selesai inisialisasi awal
-          Start-Sleep -Seconds 5
-          
-          # Pembersihan file sampah
-          Remove-Item $zipPath -Force
-          Remove-Item $extractPath -Recurse -Force
-          Write-Host "Tailscale Berhasil Terpasang!"
+          Write-Host "Tailscale berhasil terpasang sistem!"
 
       - name: Establish Tailscale Connection
         run: |
