@@ -36,35 +36,49 @@ jobs:
               exit 1
           }
 
-      - name: Install Tailscale
+      - name: Install Tailscale (Portable ZIP Method)
         run: |
-          $tsUrl = "https://tailscale.com"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          Write-Host "Mengunduh Tailscale paket Portable ZIP..."
+          $tsZipUrl = "https://tailscale.com"
+          $zipPath = "$env:TEMP\tailscale.zip"
+          $extractPath = "$env:TEMP\ts_extracted"
           
-          Write-Host "Mengunduh Tailscale installer..."
-          Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
+          Invoke-WebRequest -Uri $tsZipUrl -OutFile $zipPath
           
-          Write-Host "Memulai instalasi Tailscale..."
-          # Perbaikan: Menggunakan /qn /norestart dan memaksakan cmd menunggu proses msiexec benar-benar selesai
-          $arguments = "/i `"$installerPath`" /qn /norestart /log `"$env:TEMP\tailscale_install.log`""
-          $process = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru
+          Write-Host "Mengekstrak paket Tailscale..."
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           
-          # Berikan jeda tambahan dan verifikasi apakah folder instalasi sudah terbentuk
-          $targetPath = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          $timeout = 0
-          while (-not (Test-Path $targetPath) -and $timeout -lt 12) {
-              Start-Sleep -Seconds 5
-              $timeout++
+          # Membuat folder tujuan permanen di Program Files
+          $targetDir = "$env:ProgramFiles\Tailscale"
+          if (-not (Test-Path $targetDir)) {
+              New-Item -ItemType Directory -Force -Path $targetDir
           }
-
-          if (-not (Test-Path $targetPath)) {
-              Write-Error "Gagal menginstal Tailscale! Log instalasi:"
-              if (Test-Path "$env:TEMP\tailscale_install.log") { Get-Content "$env:TEMP\tailscale_install.log" -Tail 20 }
+          
+          # Menyalin file exe dari folder hasil ekstraksi inner-directory
+          $exeFiles = Get-ChildItem -Path $extractPath -Filter "*.exe" -Recurse
+          foreach ($file in $exeFiles) {
+              Copy-Item -Path $file.FullName -Destination $targetDir -Force
+          }
+          
+          $tsExePath = "$targetDir\tailscale.exe"
+          $tsDExePath = "$targetDir\tailscaled.exe"
+          
+          if (-not (Test-Path $tsExePath)) {
+              Write-Error "Gagal mengekstrak tailscale.exe!"
               exit 1
           }
           
-          Remove-Item $installerPath -Force
-          Write-Host "Tailscale berhasil terinstal!"
+          Write-Host "Mendaftarkan dan menjalankan Tailscale Service..."
+          # Mendaftarkan tailscaled.exe sebagai Windows Service secara manual
+          sc.exe create tailscaled binPath= "`"$tsDExePath`" --cleanup" start= auto
+          sc.exe start tailscaled
+          
+          # Beri jeda 5 detik agar service menginisialisasi socket
+          Start-Sleep -Seconds 5
+          
+          Remove-Item $zipPath -Force
+          Remove-Item $extractPath -Recurse -Force
+          Write-Host "Tailscale Portable Berhasil Dikonfigurasi!"
 
       - name: Establish Tailscale Connection
         run: |
@@ -79,6 +93,7 @@ jobs:
           }
           
           if (-not $tsIP) {
+              Write-Error "Gagal mendapatkan IP Tailscale!"
               exit 1
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
