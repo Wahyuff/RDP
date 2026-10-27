@@ -1,4 +1,4 @@
-name: macOS-VNC
+name: macOS-VNC-Fixed
 
 on:
   workflow_dispatch:
@@ -6,53 +6,43 @@ on:
 jobs:
   secure-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360
+    timeout-minutes: 360 # Batas maksimal sesi gratis GitHub Actions (6 jam)
 
     steps:
-      - name: Configure Core VNC and Force Standard Compatibility
+      - name: Install Tailscale and TigerVNC
         run: |
-          # Mengaktifkan Screen Sharing / Remote Management
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          # Menginstal Tailscale dan TigerVNC Server melalui Homebrew
+          brew install tailscale tigervnc
           
-          # Mengatur password VNC standar global agar kompatibel dengan VNC Viewer HP
-          # Password diset ke: DenzzNO@123
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvncmode -vncmode on -setvncpw -vncpw "DenzzNO@123" \
-            -restart -agent -privs -all
-            
-          # Membuka port 5900 di firewall macOS
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ScreensharingAgent.bundle/Contents/MacOS/ScreensharingAgent
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
-
-      - name: Create VNC User with Secure Password
-        run: |
-          USERNAME="denzznovuser"
-          PASSWORD="DenzzNO@123"
-          UNIQUE_ID="2501"
-          
-          sudo dscl . -delete /Users/$USERNAME 2>/dev/null || true
-          
-          sudo dscl . -create /Users/$USERNAME
-          sudo dscl . -create /Users/$USERNAME UserShell /bin/zsh
-          sudo dscl . -create /Users/$USERNAME RealName "DenzzNOV Remote User"
-          sudo dscl . -create /Users/$USERNAME UniqueID $UNIQUE_ID
-          sudo dscl . -create /Users/$USERNAME PrimaryGroupID 20
-          sudo dscl . -create /Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
-          sudo dscl . -passwd /Users/$USERNAME "$PASSWORD"
-          
-          sudo dscl . -append /Groups/admin GroupMembership $USERNAME
-          sudo createhomedir -c -u $USERNAME
-
-      - name: Install Tailscale
-        run: |
-          brew install tailscale
+          # Menjalankan background service untuk Tailscale
           sudo brew services start tailscale
+
+      - name: Configure TigerVNC Server Password
+        run: |
+          # Membuat folder konfigurasi VNC di direktori user utama
+          mkdir -p ~/.vnc
+          
+          # Mengatur password akses langsung ke: DenzzNO@123
+          # Menggunakan utilität vncpasswd bawaan agar enkripsinya cocok dengan HP
+          echo "DenzzNO@123" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+
+      - name: Launch Virtual VNC Display
+        run: |
+          # Menghapus berkas lock sisa (jika ada) agar tidak memblokir server
+          rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
+          rm -rf /tmp/.X12-unix/X1 2>/dev/null || true
+          
+          # Memulai server layar virtual TigerVNC pada Display :1 (Port 5901)
+          # Fitur localhost dimatikan agar bisa menerima koneksi dari IP Tailscale Anda
+          vncserver :1 -localhost no -geometry 1280x720 -depth 24
 
       - name: Establish Tailscale Connection
         run: |
+          # Menyambungkan mesin macOS ke jaringan VPN Tailscale Anda
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
+          # Menunggu interaksi jaringan hingga IP internal didapatkan
           TS_IP=""
           RETRIES=0
           while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
@@ -64,24 +54,26 @@ jobs:
           done
           
           if [ -z "$TS_IP" ]; then
-              echo "Gagal mendapatkan IP Tailscale."
+              echo "Gagal memperoleh IP jaringan Tailscale!"
               exit 1
           fi
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
       
-      - name: Verify VNC Accessibility
+      - name: Verify VNC Port Accessibility
         run: |
           echo "Tailscale IP: $TAILSCALE_IP"
-          nc -zv localhost 5900
+          # Mengecek kesiapan sistem pada Port 5901 (Display :1)
+          nc -zv localhost 5901
 
       - name: Maintain Connection
         run: |
-          echo -e "\n=== DETAIL LOGIN VNC TERBARU ==="
-          echo "Address  : $TAILSCALE_IP:5900"
-          echo "Password VNC Langsung : DenzzNO@123"
-          echo "================================\n"
+          echo -e "\n=== DETAIL LOGIN VNC TERBARU (ANTI-ERROR) ==="
+          echo "Address  : $TAILSCALE_IP:5901"
+          echo "Password : DenzzNO@123"
+          echo "=============================================\n"
           
+          # Loop penahan agar runner tidak tertutup otomatis oleh GitHub
           while true; do
-              echo "[$(date)] VNC Server Active"
+              echo "[$(date)] VNC Server Active on Port 5901"
               sleep 300
           done
